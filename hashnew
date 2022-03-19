@@ -1,0 +1,275 @@
+.global sha1_chunk
+
+mystring: .asciz "edi: %x, esi: %x \n" 
+sha1_chunk:
+    # h0 = esi 
+    # w = edi
+
+    # movq    %esi, %rdx
+    # movq    %edi, %esi
+    # movq    $0, %eax            # first argument of printf, sets no vector registers for use in printf
+    # movq    $mystring, %edi     # second argument of printf, sets the adress of ths string in edi
+    
+    # call    printf              # calls printf
+
+
+    movl   $16, %eax
+
+    call    extend
+    call    mainloopsetup
+    # allign registers
+    call    createhashes
+    call    end
+
+
+extend:
+    pushq   %rbp                               
+    movq    %rsp, %rbp
+
+    movl    %eax, %r8d
+    movl    %eax, %r9d
+    movl    %eax, %r10d
+    movl    %eax, %r11d
+    movl    %eax, %ebx
+
+    subl    $3, %r8d
+    subl    $8, %r9d
+    subl    $14, %r10d
+    subl    $16, %r11d
+
+    imul    $4, %r8d
+    imul    $4, %r9d
+    imul    $4, %r10d
+    imul    $4, %r11d
+    movl     $4, %ebx
+
+    addl    %edi, %r8d
+    addl    %edi, %r9d
+    addl    %edi, %r10d
+    addl    %edi, %r11d  
+    addl    %edi, %ebx
+
+    movl    (%r8d), %r12d             # w[i-3]
+    movl    (%r9d), %r13d             # w[i-8]
+    movl    (%r10d), %r14d             # w[i-14]
+    movl    (%r11d), %r15d             # w[i-16]
+    
+    xor     %r12d, %r13d    # w[i-3] xor w[i-8]
+    xor     %r13d, %r14d    # w[i-3] xor w[i-8] xor w[i-14]
+    xor     %r14d, %r15d    # w[i-3] xor w[i-8] xor w[i-14] xor w[i-16]
+    roll    $1, %r15d       # (w[i-3] xor w[i-8] xor w[i-14] xor w[i-16]) leftrotate 1
+
+    movl    %r15d, (%ebx)
+
+    incl    %eax
+
+    movq    %rbp, %rsp                        
+    popq    %rbp
+
+    cmpl    $80, %eax
+    jl      extend
+
+    ret
+
+
+mainloopsetup:
+    pushq   %rbp                               
+    movq    %rsp, %rbp
+
+    movl (%esi), %r10d          #     a(r10d) = h0   
+    movl 4(%esi), %r11d        #     b(r11d) = h1 
+    movl 8(%esi), %r12d       #     c(r12d) = h2    
+    movl 12(%esi), %r13d       #     d(r13d) = h3    
+    movl 16(%esi), %r14d       #     e(r14d) = h4 
+
+    movl $0, %eax
+    call mainloop
+
+    movq    %rbp, %rsp                        
+    popq    %rbp
+
+    ret
+
+mainloop:
+    pushq   %rbp                               
+    movq    %rsp, %rbp
+
+    cmpl $20, %eax
+    jl  loop1
+
+    cmpl $40, %eax
+    jl loop2
+
+    cmpl $60, %eax
+    jl loop3
+
+    cmpl $80, %eax
+    jl loop4
+
+    movq    %rbp, %rsp                        
+    popq    %rbp
+
+    ret
+
+loop1:
+    pushq   %rbp                               
+    movq    %rsp, %rbp
+
+    subl    $12, %esp
+    movl    %r11d, -4(%ebp) # b
+    movl    %r12d, -8(%ebp) # c
+    movl    %r13d, -12(%ebp) # d
+
+    and     %r11d, -8(%ebp)        # b and c
+    notl    -4(%ebp)               # not b
+    movl    -4(%ebp), %ebx         # store in ebx as to not overwrite b
+    and     %ebx, -12(%ebp)        # ((not b) and d)
+    movl    -12(%ebp), %ebx
+    or      -8(%ebp), %ebx        # (b and c) or ((not b) and d) 0x40126c
+
+    movl    %ebx, %r8d              # f(%r8d) = (b and c) or ((not b) and d)
+    movl    $0x5A827999, %r9d       # k(%r9d) = 0x5A827999
+
+    movq    %rbp, %rsp                        
+    popq    %rbp
+
+    call shuffle
+    call mainloop
+    ret
+
+loop2:
+    pushq   %rbp                               
+    movq    %rsp, %rbp
+
+    subl    $12, %esp
+    movl    %r11d, -4(%ebp) # b
+    movl    %r12d, -8(%ebp) # c
+    movl    %r13d, -12(%ebp) # d
+
+    xor     %r11d, -8(%ebp)         # b xor c
+    movl    -8(%ebp), %ebx         # store in ebx to avoid two memory calls
+    xor     %ebx, -12(%ebp)         # (b xor c) xor d
+
+    movl    -12(%ebp), %r8d          # f(%r8d) = b xor c xor d
+    movl    $0x6ED9EBA1, %r9d        # k(%r9d) = 0x6ED9EBA1
+  
+    movq    %rbp, %rsp                        
+    popq    %rbp
+
+    call shuffle
+    call mainloop
+    ret
+
+
+loop3:
+    pushq   %rbp                               
+    movq    %rsp, %rbp
+
+    subl    $12, %esp
+    movl    %r11d, -4(%ebp)     # b
+    movl    %r12d, -8(%ebp)    # c
+    movl    %r13d, -12(%ebp)    # d
+
+    and     %r11d, -8(%ebp)    # (b and c)
+    and     %r13d, -4(%ebp)     # (d and b)
+    and     %r12d, -12(%ebp)    # (c and d)
+    movl    -4(%ebp), %ebx     # helper variable
+    or      -8(%ebp), %ebx    # (b and c) or (d and b)
+    or      %ebx, -12(%ebp)    # (b and c) or (d and b) or (c and d)
+    
+    movl    -12(%ebp), %r8d          # f(%r8d) = (b and c) or (d and b) or (c and d)        
+    movl    $0x8F1BBCDC, %r9d        # k(%r9d) = 0x8F1BBCDC
+  
+    movq    %rbp, %rsp                        
+    popq    %rbp
+
+    call shuffle
+    call mainloop
+    ret
+
+
+loop4:
+    pushq   %rbp                               
+    movq    %rsp, %rbp
+
+    subl    $12, %esp
+    movl    %r11d, -4(%ebp)    # b
+    movl    %r12d, -8(%ebp)   # c
+    movl    %r13d, -12(%ebp)   # d
+
+    xor     %r11d, -8(%ebp)    # b xor c
+    movl    -8(%ebp), %ebx    # store in ebx to avoid two memory calls
+    xor     %ebx, -12(%ebp)    # (b xor c) xor d
+
+    movl    -12(%ebp), %r8d          # f(%r8d) = b xor c xor d
+    movl    $0xCA62C1D6, %r9d        # k(%r9d) = 0xCA62C1D6
+
+    movq    %rbp, %rsp                        
+    popq    %rbp
+
+    call shuffle
+    call mainloop
+    ret
+
+shuffle: 
+    pushq   %rbp                               
+    movq    %rsp, %rbp
+
+    subl    $28, %esp
+    movl    %r10d, -4(%ebp)  # a
+    movl    %r11d, -8(%ebp)  # b
+    movl    %r12d, -12(%ebp) # c
+    movl    %r13d, -16(%ebp) # d
+    movl    %r14d, -20(%ebp) # e
+    movl    %r8d, -24(%ebp)  # f
+    movl    %r9d, -28(%ebp)  # k
+ 
+    roll     $5, -4(%ebp)              # (a leftrotate 5)
+    movl    -4(%ebp), %ebx             # helper variable
+    addl    -24(%ebp), %ebx            # f + (a leftrotate 5)
+    addl    -20(%ebp), %ebx            # e + ((a leftrotate 5) + f)
+    addl    -28(%ebp), %ebx            # k + ((a leftrotate 5) + f + e)
+
+    movl    %eax, %edx
+    imul   $4, %edx
+    addl    (%edi), %edx
+
+    addl    (%edx), %ebx               # w[i] + ((a leftrotate 5) + f + e + k)  
+
+    movl    %ebx, %r15d                # temp(r15d) = (a leftrotate 5) + f + e + k + w[i]          
+
+    movl    %r13d, %r14d               #         e = d
+    movl    %r12d, %r13d               #         d = c
+
+    roll     $30, -8(%ebp)             # b leftrotate 30
+    movl    -8(%ebp), %r12d            # c = b leftrotate 30
+
+    movl    %r10d, %r11d                 #         b = a
+    movl    %r15d, %r10d                 #         a = temp
+
+    movq    %rbp, %rsp                        
+    popq    %rbp
+
+    movl    4(%edx), %edx    
+    incl    %eax
+
+    ret
+ 
+createhashes: 
+    pushq   %rbp                               
+    movq    %rsp, %rbp
+
+    addl     %r10d, (%esi)          # h0 = h0 + a
+    addl     %r11d, 4(%esi)        # h1 = h1 + b 
+    addl     %r12d, 8(%esi)       # h2 = h2 + c
+    addl     %r13d, 12(%esi)       # h3 = h3 + d
+    addl     %r14d, 16(%esi)       # h4 = h4 + e
+
+    movq    %rbp, %rsp                        
+    popq    %rbp
+
+    ret
+
+end:
+    mov     $0,  %edi          
+    call    exit               
