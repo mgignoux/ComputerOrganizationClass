@@ -37,11 +37,11 @@ extend:
     subl    $14, %r10d
     subl    $16, %r11d
 
-    imul    $4, %r8d
-    imul    $4, %r9d
-    imul    $4, %r10d
-    imul    $4, %r11d
-    movl     $4, %ebx
+    imul    $32, %r8d
+    imul    $32, %r9d
+    imul    $32, %r10d
+    imul    $32, %r11d
+    imul    $32, %ebx
 
     addl    %edi, %r8d
     addl    %edi, %r9d
