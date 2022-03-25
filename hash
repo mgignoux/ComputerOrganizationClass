@@ -1,250 +1,224 @@
 .global sha1_chunk
-
-sha1_chunk:
     # h = edi 
     # w = esi
-
+    
+sha1_chunk:
     pushq   %rbp
     movq    %rsp, %rbp
     
-    pushq    %rbx
-    pushq    %r12
-    pushq    %r13
-    pushq    %r14
-    pushq    %r15
+    pushq   %rbx                    # pushes the callee saved registers onto the stack so they don't get overwritten
+    pushq   %r12
+    pushq   %r13
+    pushq   %r14
+    pushq   %r15
 
-    movq   $16, %rax
+    movq    $16, %rax               # sets up the counter variable for the loop
 
-w_extend:
-    movq    %rax, %r8
+extend:                             # extend: extends the sixteen 32-bit words into eighty 32-bit words
+    movq    %rax, %r8               # the goal of this chunk of text is to find w[i-3] 
+    subq    $3, %r8                 # stores i-3 in %r8 
+    imulq   $4, %r8                 # multiplies by four for finding the value in memory (word length = 4)
+    addq    %rsi, %r8               # adds the location of w[0] to the point up in memory w[i-3] is stored
+    movq    (%r8), %r12             # w[i-3] = r12           
+
     movq    %rax, %r9
+    subq    $8, %r9 
+    imulq   $4, %r9 
+    addq    %rsi, %r9
+    movq    (%r9), %r13             # w[i-8] = r13          
+
     movq    %rax, %r10
-    movq    %rax, %r11
-
-    # p/x *($rdi + (4 * (16 - 3)))
-    subq    $3, %r8
-    imulq   $4, %r8
-    addq    %rsi, %r8
-    movq    (%r8), %r12             # w[i-3]
-
-    # p/x *($rdi + (4 * (16 - 8)))
-    subq    $8, %r9 # 16 - 8
-    imulq   $4, %r9 # 8 * 4
-    addq    %rsi, %r9 # &w[0] + 32 (8 elements)
-    movq    (%r9), %r13             # w[i-8]
-
     subq    $14, %r10
     imulq   $4, %r10
     addq    %rsi, %r10
-    movq    (%r10), %r14             # w[i-14]
+    movq    (%r10), %r14            # w[i-14] = r14           
 
+    movq    %rax, %r11
     subq    $16, %r11
     imulq   $4, %r11
     addq    %rsi, %r11
-    movq    (%r11), %r15             # w[i-16]
+    movq    (%r11), %r15            # w[i-16] = r15         
     
-    xorq     %r12, %r13    # w[i-3] xor w[i-8]
-    xorq     %r13, %r14    # w[i-3] xor w[i-8] xor w[i-14]
-    xorq     %r14, %r15    # w[i-3] xor w[i-8] xor w[i-14] xor w[i-16]
+    xorq    %r12, %r13              # w[i-3] xor w[i-8]
+    xorq    %r13, %r14              # (w[i-3] xor w[i-8]) xor w[i-14]
+    xorq    %r14, %r15              # (w[i-3] xor w[i-8] xor w[i-14]) xor w[i-16]
+    roll    $1, %r15d               # (w[i-3] xor w[i-8] xor w[i-14] xor w[i-16]) leftrotate 1
 
-    roll    $1, %r15d       # (w[i-3] xor w[i-8] xor w[i-14] xor w[i-16]) leftrotate 1
+    # the 32-bit register is used for the roll, because otherwise it rolls into the upper 
+    # 32-bits and we are only concerned with the lower 32-bits. Note that logic operations 
+    # don't have an impact as it is a bitwise operation.
 
-    movq    %rax, %rbx    # ebx = i
-    imulq   $4, %rbx      # ebx * 4 (32-bit int element offsets)
-    addq    %rsi, %rbx    # ebx = &w[0] + ebx (element offset) = &w[i]
-    movq    %r15, (%rbx) # w[i] = r15d
+    movq    %rax, %rbx              # this chunk stores the result (stored in r15), using the same process discussed prior
+    imulq   $4, %rbx       
+    addq    %rsi, %rbx    
+    movq    %r15, (%rbx)            # w[i] = r15
 
-    incq    %rax          # i++
+    incq    %rax                    # increases the counter for the loop
 
-    cmpq    $80, %rax     # if i < 80: jump to extend
-    jl      w_extend
+    cmpq    $80, %rax               # if i < 80: jump to extend, otherwise the program continues into hashsteup
+    jl      extend
 
-hash:
-    # p/x $r10d
-    movq (%rdi), %r10          #     a(r10d) = h0   
-    # p/x $r11d
-    movq 4(%rdi), %r11         #     b(r11d) = h1 
-    # p/x $r12d
-    movq 8(%rdi), %r12         #     c(r12d) = h2    
-    # p/x $r13d
-    movq 12(%rdi), %r13        #     d(r13d) = h3    
-    # p/x $r14d
-    movq 16(%rdi), %r14        #     e(r14d) = h4 
+hashsetup:
+    movq (%rdi), %r10               # a(r10d) = h0   
+    movq 4(%rdi), %r11              # b(r11d) = h1 
+    movq 8(%rdi), %r12              # c(r12d) = h2    
+    movq 12(%rdi), %r13             # d(r13d) = h3    
+    movq 16(%rdi), %r14             # e(r14d) = h4 
 
-    movq $0, %rax
+    movq $0, %rax                   # sets up counter for hashloop
 
-hash_loop:
-    cmpq $80, %rax
-    je write_chunk
+hashloop:
+    cmpq $80, %rax                  # exit condition for loop
+    je createhashes
 
     cmpq $20, %rax
-    jl from_0_to_19
+    jl loop1
 
     cmpq $40, %rax
-    jl from_20_to_39
+    jl loop2
 
     cmpq $60, %rax
-    jl from_40_to_59
+    jl loop3
 
     cmpq $80, %rax
-    jl from_60_to_79
+    jl loop4
 
-# r8 = f
-# r9 = k
-from_0_to_19:
+loop1:
     pushq   %rbp
     movq    %rsp, %rbp
     subq    $24, %rsp
 
-    movq    %r11, -8(%rbp)  # b
-    movq    %r12, -16(%rbp)  # c
-    movq    %r13, -24(%rbp) # d
+    movq    %r11, -8(%rbp)          # b = -8(%rbp)
+    movq    %r12, -16(%rbp)         # c = -16(%rbp)
+    movq    %r13, -24(%rbp)         # d = -24(%rbp)
 
-    and     %r11, -16(%rbp)        # b and c
-    notq    -8(%rbp)               # not b
-    movq    -8(%rbp), %rbx         # store in ebx as to not overwrite b
-    and     %rbx, -24(%rbp)        # ((not b) and d)
-    movq    -24(%rbp), %rbx
-    or      -16(%rbp), %rbx        # (b and c) or ((not b) and d) 0x40126c
+    # puts variables used in the loop into the stack to do 
+    # operations without overwriting the original values.
 
-    movq    %rbx, %r8              # f(%r8d) = (b and c) or ((not b) and d)
-    movq    $0x5A827999, %r9       # k(%r9d) = 0x5A827999
+    and     %r11, -16(%rbp)         # b and c
+    notq    -8(%rbp)                # not b
+    movq    -8(%rbp), %rbx          # rbx is a helper variable used to make sure overwrites don't happen
+    and     %rbx, -24(%rbp)         # ((not b) and d)
+    movq    -24(%rbp), %rbx         # helper variable
+    or      -16(%rbp), %rbx         # (b and c) or ((not b) and d)
 
-    addq    $24, %rsp
+    movq    %rbx, %r8               # f(%r8d) = (b and c) or ((not b) and d)
+    movq    $0x5A827999, %r9        # k(%r9d) = 0x5A827999
+
     movq    %rbp, %rsp
     popq    %rbp
 
-    jmp write_iteration_result
+    jmp     shuffle
 
-from_20_to_39:
+loop2:
     pushq   %rbp
     movq    %rsp, %rbp
-    subq    $24, %rsp
 
-    movq    %r11, -8(%rbp) # b
-    movq    %r12, -16(%rbp) # c
-    movq    %r13, -24(%rbp) # d
+    movq    %r11, -8(%rbp)           # b = -8(%rbp)
+    movq    %r12, -16(%rbp)          # c = -16(%rbp)
+    movq    %r13, -24(%rbp)          # d = -24(%rbp)
 
-    # FIXME: Does xor width matter with respect to upper bits?
-    # not, just truncates
     xorq     %r11, -16(%rbp)         # b xor c
-    movq    -16(%rbp), %rbx         # store in ebx to avoid two memory calls
+    movq    -16(%rbp), %rbx          # store in ebx to avoid two memory calls
     xorq     %rbx, -24(%rbp)         # (b xor c) xor d
 
-    movq    -24(%rbp), %r8          # f(%r8d) = b xor c xor d
-    movq    $0x6ED9EBA1, %r9        # k(%r9d) = 0x6ED9EBA1
+    movq    -24(%rbp), %r8           # f(%r8d) = b xor c xor d
+    movq    $0x6ED9EBA1, %r9         # k(%r9d) = 0x6ED9EBA1
   
-    addq    $24, %rsp
     movq    %rbp, %rsp
     popq    %rbp
 
-    jmp write_iteration_result
+    jmp     shuffle
 
-from_40_to_59:
+loop3:
     pushq   %rbp
     movq    %rsp, %rbp
-    subq    $24, %rsp
 
-    movq    %r11, -8(%rbp)     # b
-    movq    %r12, -16(%rbp)    # c
-    movq    %r13, -24(%rbp)    # d
+    movq    %r11, -8(%rbp)           # b = -8(%rbp)
+    movq    %r12, -16(%rbp)          # c = -16(%rbp)
+    movq    %r13, -24(%rbp)          # d = -24(%rbp)
 
-    and     %r11, -16(%rbp)    # (b and c)
-    and     %r13, -8(%rbp)     # (d and b)
-    and     %r12, -24(%rbp)    # (c and d)
-    movq    -8(%rbp), %rbx     # helper variable
-    or      -16(%rbp), %rbx    # (b and c) or (d and b)
-    or      %rbx, -24(%rbp)    # (b and c) or (d and b) or (c and d)
+    and     %r11, -16(%rbp)          # (b and c)
+    and     %r13, -8(%rbp)           # (d and b)
+    and     %r12, -24(%rbp)          # (c and d)
+    movq    -8(%rbp), %rbx           # helper variable
+    or      -16(%rbp), %rbx          # (b and c) or (d and b)
+    or      %rbx, -24(%rbp)          # ((b and c) or (d and b)) or (c and d)
 
-    movq    -24(%rbp), %r8          # f(%r8d) = (b and c) or (d and b) or (c and d)        
-    movq    $0x8F1BBCDC, %r9        # k(%r9d) = 0x8F1BBCDC
+    movq    -24(%rbp), %r8           # f(%r8d) = (b and c) or (d and b) or (c and d)        
+    movq    $0x8F1BBCDC, %r9         # k(%r9d) = 0x8F1BBCDC
   
-    addq    $24, %rsp
     movq    %rbp, %rsp
     popq    %rbp
 
-    jmp write_iteration_result
+    jmp shuffle
 
-from_60_to_79:
+loop4:
     pushq   %rbp
     movq    %rsp, %rbp
-    subq    $24, %rsp
 
-    movq    %r11, -8(%rbp)    # b
-    movq    %r12, -16(%rbp)   # c
-    movq    %r13, -24(%rbp)   # d
+    movq    %r11, -8(%rbp)           # b = -8(%rbp)
+    movq    %r12, -16(%rbp)          # c = -16(%rbp)
+    movq    %r13, -24(%rbp)          # d = -24(%rbp)
 
-    xor     %r11, -16(%rbp)    # b xor c
-    movq    -16(%rbp), %rbx    # store in ebx to avoid two memory calls
-    xor     %rbx, -24(%rbp)    # (b xor c) xor d
+    xor     %r11, -16(%rbp)          # b xor c
+    movq    -16(%rbp), %rbx          # helper variable
+    xor     %rbx, -24(%rbp)          # (b xor c) xor d
 
-    movq    -24(%rbp), %r8          # f(%r8d) = b xor c xor d
-    movq    $0xCA62C1D6, %r9        # k(%r9d) = 0xCA62C1D6
+    movq    -24(%rbp), %r8           # f(%r8d) = b xor c xor d
+    movq    $0xCA62C1D6, %r9         # k(%r9d) = 0xCA62C1D6
 
-    addq    $24, %rsp
     movq    %rbp, %rsp
     popq    %rbp
 
-    jmp write_iteration_result
+    jmp shuffle
 
-# r14 = e
-# r13 = d
-# r12 = c
-# r11 = b
-# r10 = a
-write_iteration_result:
+shuffle:
     pushq   %rbp
     movq    %rsp, %rbp
-    subq    $56, %rsp
 
-    movq    %r10, -8(%rbp)  # a
-    movq    %r11, -16(%rbp)  # b
-    movq    %r12, -24(%rbp) # c
-    movq    %r13, -32(%rbp) # d
-    movq    %r14, -40(%rbp) # e
-    movq    %r8, -48(%rbp)  # f
-    movq    %r9, -56(%rbp)  # k
+    movq    %r10, -8(%rbp)           # a
+    movq    %r11, -16(%rbp)          # b
+    movq    %r12, -24(%rbp)          # c
+    movq    %r13, -32(%rbp)          # d
+    movq    %r14, -40(%rbp)          # e
+    movq    %r8, -48(%rbp)           # f
+    movq    %r9, -56(%rbp)           # k
  
-    movq    -8(%rbp), %rbx
-    roll     $5, %ebx                  # (a leftrotate 5)
-    addq    -48(%rbp), %rbx            # f + (a leftrotate 5)
-    addq    -40(%rbp), %rbx            # e + ((a leftrotate 5) + f)
-    addq    -56(%rbp), %rbx            # k + ((a leftrotate 5) + f + e)
+    movq    %rax, %rdx               # finds the location where the result needs to be stored
+    imulq   $4, %rdx                 # finds how many spots up from the base of the array the result will be stored (4 is the word length) 
+    addq    %rsi, %rdx               # location of w[i]
 
-    movq    %rax, %rdx
-    imulq   $4, %rdx
-    addq    %rsi, %rdx
+    movq    -8(%rbp), %rbx           # helper variable to use 32-bit register
+    roll     $5, %ebx                # (a leftrotate 5)
+    addq    -48(%rbp), %rbx          # f + (a leftrotate 5)
+    addq    -40(%rbp), %rbx           # e + ((a leftrotate 5) + f)
+    addq    -56(%rbp), %rbx           # k + ((a leftrotate 5) + f + e)
+    addq    (%rdx), %rbx              # w[i] + ((a leftrotate 5) + f + e + k)  
+    movl    %ebx, %r15d               # temp(r15d) = (a leftrotate 5) + f + e + k + w[i]          
+    movl    %r13d, %r14d              # e = d
+    movl    %r12d, %r13d              # d = c
+    movq    -16(%rbp), %rbx           # helper variable
+    roll     $30, %ebx                # b leftrotate 30
+    movl     %ebx, %r12d              # c = b leftrotate 30
+    movl    %r10d, %r11d              # b = a
+    movl    %r15d, %r10d              # a = temp
 
-    addq    (%rdx), %rbx               # w[i] + ((a leftrotate 5) + f + e + k)  
+    incq    %rax                      # increases the loop counter     
 
-    movl    %ebx, %r15d                # temp(r15d) = (a leftrotate 5) + f + e + k + w[i]          
-
-    movl    %r13d, %r14d               #         e = d
-    movl    %r12d, %r13d               #         d = c
-
-    movq    -16(%rbp), %rbx
-    roll     $30, %ebx                 # b leftrotate 30
-    movl     %ebx, %r12d            # c = b leftrotate 30
-
-    movl    %r10d, %r11d                 #         b = a
-    movl    %r15d, %r10d                 #         a = temp
-
-    incl    %eax
-
-    addq     $56, %rsp
     movq    %rbp, %rsp
     popq    %rbp
 
-    jmp     hash_loop
+    jmp     hashloop
 
-write_chunk:
-    addl     %r10d, (%rdi)          # h0 = h0 + a
-    addl     %r11d, 4(%rdi)         # h1 = h1 + b 
-    addl     %r12d, 8(%rdi)         # h2 = h2 + c
-    addl     %r13d, 12(%rdi)        # h3 = h3 + d
-    addl     %r14d, 16(%rdi)        # h4 = h4 + e
+createhashes: # by definition, value at specific adress is 32 bit, so we use 32-bit registers
+    addl     %r10d, (%rdi)            # h0 = h0 + a
+    addl     %r11d, 4(%rdi)           # h1 = h1 + b 
+    addl     %r12d, 8(%rdi)           # h2 = h2 + c
+    addl     %r13d, 12(%rdi)          # h3 = h3 + d
+    addl     %r14d, 16(%rdi)          # h4 = h4 + e
 
-    popq     %r15
+    popq     %r15                     # pops the callee saved registers by convention
     popq     %r14
     popq     %r13
     popq     %r12
